@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sub-19 5K Tracker (Cloud)</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        :root {
+            --bg-color: #f4f4f9; --primary: #2c3e50; --accent: #3498db;
+            --success: #2ecc71; --text-main: #333; --card-bg: #fff;
+        }
+        body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: var(--bg-color); color: var(--text-main); margin: 0; padding: 20px; display: flex; justify-content: center; }
+        .container { max-width: 600px; width: 100%; }
+        #auth-screen { background: var(--card-bg); padding: 40px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); text-align: center; margin-top: 50px; }
+        input { width: 100%; padding: 12px; margin: 10px 0; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+        button { background-color: var(--accent); color: white; border: none; padding: 12px 20px; width: 100%; border-radius: 4px; cursor: pointer; font-size: 16px; font-weight: bold; margin-top: 10px; }
+        button:hover { background-color: #2980b9; }
+        .btn-secondary { background-color: #95a5a6; }
+        .btn-secondary:hover { background-color: #7f8c8d; }
+        #dashboard-screen, #loading-screen { display: none; }
+        .header-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .logout-btn { background-color: #e74c3c; width: auto; padding: 8px 15px; font-size: 14px; }
+        .logout-btn:hover { background-color: #c0392b; }
+        .workout-card { background: var(--card-bg); padding: 15px 20px; margin-bottom: 10px; border-radius: 8px; border-left: 5px solid var(--accent); display: flex; align-items: center; justify-content: space-between; }
+        .workout-card.completed { border-left-color: var(--success); opacity: 0.7; }
+        .workout-card.completed .workout-info { text-decoration: line-through; color: #7f8c8d; }
+        .workout-info { flex-grow: 1; }
+        .workout-title { font-weight: bold; font-size: 16px; margin-bottom: 5px;}
+        .workout-desc { font-size: 14px; color: #555; }
+        .workout-week { font-size: 12px; color: #888; text-transform: uppercase; }
+        input[type="checkbox"] { width: 25px; height: 25px; cursor: pointer; accent-color: var(--success); }
+        .section-toggle { background-color: #ddd; color: #333; text-align: left; margin-top: 20px; }
+        .hidden-section { display: none; margin-top: 10px; }
+        .error { color: #e74c3c; font-size: 14px; margin-top: 10px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div id="auth-screen">
+        <h2>Sub-19 5K Plan</h2>
+        <p>Log in or Create an Account</p>
+        <input type="email" id="email" placeholder="Email Address">
+        <input type="password" id="password" placeholder="Password (min 6 chars)">
+        <button onclick="login()">Log In</button>
+        <button class="btn-secondary" onclick="signUp()">Create Account</button>
+        <div id="auth-error" class="error"></div>
+    </div>
+
+    <div id="loading-screen" style="text-align: center; margin-top: 50px;">
+        <h2>Syncing with Database...</h2>
+    </div>
+
+    <div id="dashboard-screen">
+        <div class="header-row">
+            <h2 id="welcome-text">Your Plan</h2>
+            <button class="logout-btn" onclick="logout()">Log Out</button>
+        </div>
+
+        <h3>Up Next (Next 4 Workouts)</h3>
+        <div id="next-workouts"></div>
+
+        <button class="section-toggle" onclick="toggleSection('future-workouts')">▼ View All Future Workouts</button>
+        <div id="future-workouts" class="hidden-section"></div>
+
+        <button class="section-toggle" onclick="toggleSection('history-workouts')">▼ View History (Completed)</button>
+        <div id="history-workouts" class="hidden-section"></div>
+    </div>
+</div>
+
+<script>
+    // --- SUPABASE CONFIGURATION ---
+    const SUPABASE_URL = 'https://utocmozaaxajyqxtjzot.supabase.co';
+    const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV0b2Ntb3phYXhhanlxeHRqem90Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcwMzQ1MDgsImV4cCI6MjA5MjYxMDUwOH0.GSm-Kud_3Yy3R1UyceZetpLoHQ701bp5ybMSHalSbnA  ';
+    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+    let workouts = [];
+    let currentUser = null;
+
+    // --- INITIALIZATION ---
+    async function init() {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session) {
+            currentUser = session.user;
+            showLoading();
+            await loadData();
+            showDashboard();
+        } else {
+            document.getElementById("auth-screen").style.display = "block";
+        }
+    }
+
+    // --- AUTHENTICATION ---
+    async function signUp() {
+        const email = document.getElementById("email").value;
+        const password = document.getElementById("password").value;
+        const errorDiv = document.getElementById("auth-error");
+        
+        const { data, error } = await supabase.auth.signUp({ email, password });
+        if (error) {
+            errorDiv.innerText = error.message;
+        } else {
+            currentUser = data.user;
+            showLoading();
+            await loadData();
+            showDashboard();
+        }
+    }
+
+    async function login() {
+        const email = document.getElementById("email").value;
+        const password = document.getElementById("password").value;
+        const errorDiv = document.getElementById("auth-error");
+        
+        const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+        if (error) {
+            errorDiv.innerText = error.message;
+        } else {
+            currentUser = data.user;
+            showLoading();
+            await loadData();
+            showDashboard();
+        }
+    }
+
+    async function logout() {
+        await supabase.auth.signOut();
+        currentUser = null;
+        workouts = [];
+        document.getElementById("dashboard-screen").style.display = "none";
+        document.getElementById("auth-screen").style.display = "block";
+        document.getElementById("email").value = "";
+        document.getElementById("password").value = "";
+    }
+
+    // --- DATABASE OPERATIONS ---
+    async function loadData() {
+        // Fetch existing workouts
+        let { data, error } = await supabase
+            .from('workouts')
+            .select('*')
+            .order('id', { ascending: true });
+
+        if (error) {
+            console.error("Error fetching data:", error);
+            return;
+        }
+
+        // If no workouts exist for this user, generate and insert them
+        if (data.length === 0) {
+            const plan = generatePlanArray();
+            const { error: insertError } = await supabase.from('workouts').insert(plan);
+            if (!insertError) {
+                // Refetch after inserting
+                let { data: newData } = await supabase.from('workouts').select('*').order('id', { ascending: true });
+                workouts = newData;
+            }
+        } else {
+            workouts = data;
+        }
+    }
+
+    async function toggleWorkout(id, isCurrentlyCompleted) {
+        // Optimistic UI update
+        let workout = workouts.find(w => w.id === id);
+        workout.completed = !isCurrentlyCompleted;
+        renderWorkouts();
+
+        // Update database
+        await supabase
+            .from('workouts')
+            .update({ completed: !isCurrentlyCompleted })
+            .eq('id', id);
+    }
+
+    // --- WORKOUT GENERATOR ---
+    function generatePlanArray() {
+        let plan = [];
+        for (let week = 1; week <= 24; week++) {
+            let phase = week <= 8 ? 1 : (week <= 16 ? 2 : 3);
+            
+            if (phase === 1) {
+                plan.push({ user_id: currentUser.id, week: week, day: "Monday", type: "Easy Run", description: "30 mins relaxed, conversational pace."});
+                plan.push({ user_id: currentUser.id, week: week, day: "Wednesday", type: "Speed Play", description: "10m warmup. 15m alt: 1m hard/1m easy. 10m cooldown."});
+                plan.push({ user_id: currentUser.id, week: week, day: "Friday", type: "Easy Run", description: "30-40 mins relaxed, conversational pace."});
+                plan.push({ user_id: currentUser.id, week: week, day: "Saturday", type: "Long Run", description: "8-10 km slow pace. Focus on time on feet."});
+            } else if (phase === 2) {
+                plan.push({ user_id: currentUser.id, week: week, day: "Monday", type: "Easy Run", description: "40 mins relaxed pace."});
+                plan.push({ user_id: currentUser.id, week: week, day: "Wednesday", type: "Tempo Run", description: "10m warmup. 20m 'comfortably hard' (4:30/km). 10m cooldown."});
+                plan.push({ user_id: currentUser.id, week: week, day: "Friday", type: "Intervals", description: "10m warmup. 6x400m at goal pace (3:45/km) w/ 90s rest. 10m cooldown."});
+                plan.push({ user_id: currentUser.id, week: week, day: "Saturday", type: "Long Run", description: "10-12 km steady, conversational pace."});
+            } else {
+                plan.push({ user_id: currentUser.id, week: week, day: "Monday", type: "Easy Run", description: "45 mins relaxed pace."});
+                plan.push({ user_id: currentUser.id, week: week, day: "Wednesday", type: "Hard Intervals", description: "10m warmup. 5x1km at goal pace (3:45/km) w/ 2m rest. 10m cooldown."});
+                plan.push({ user_id: currentUser.id, week: week, day: "Friday", type: "Recovery", description: "30 mins very easy jogging to flush legs."});
+                plan.push({ user_id: currentUser.id, week: week, day: "Saturday", type: "Long Run", description: "12-14 km w/ last 2km at tempo pace."});
+            }
+        }
+        return plan;
+    }
+
+    // --- RENDERING & UI ---
+    function showLoading() {
+        document.getElementById("auth-screen").style.display = "none";
+        document.getElementById("loading-screen").style.display = "block";
+    }
+
+    function showDashboard() {
+        document.getElementById("loading-screen").style.display = "none";
+        document.getElementById("dashboard-screen").style.display = "block";
+        document.getElementById("welcome-text").innerText = "Plan for " + currentUser.email.split('@')[0];
+        renderWorkouts();
+    }
+
+    function renderWorkouts() {
+        const nextContainer = document.getElementById("next-workouts");
+        const futureContainer = document.getElementById("future-workouts");
+        const historyContainer = document.getElementById("history-workouts");
+        
+        nextContainer.innerHTML = ""; futureContainer.innerHTML = ""; historyContainer.innerHTML = "";
+
+        let pendingWorkouts = workouts.filter(w => !w.completed);
+        let completedWorkouts = workouts.filter(w => w.completed).reverse();
+
+        pendingWorkouts.slice(0, 4).forEach(w => nextContainer.appendChild(createWorkoutCard(w)));
+        pendingWorkouts.slice(4).forEach(w => futureContainer.appendChild(createWorkoutCard(w)));
+
+        if (completedWorkouts.length === 0) {
+            historyContainer.innerHTML = "<p style='color:#777; font-size:14px;'>No completed workouts yet.</p>";
+        } else {
+            completedWorkouts.forEach(w => historyContainer.appendChild(createWorkoutCard(w)));
+        }
+    }
+
+    function createWorkoutCard(workout) {
+        const div = document.createElement('div');
+        div.className = `workout-card ${workout.completed ? 'completed' : ''}`;
+        div.innerHTML = `
+            <div class="workout-info">
+                <div class="workout-week">Week ${workout.week} • ${workout.day}</div>
+                <div class="workout-title">${workout.type}</div>
+                <div class="workout-desc">${workout.description}</div>
+            </div>
+            <div>
+                <input type="checkbox" ${workout.completed ? 'checked' : ''} onchange="toggleWorkout(${workout.id}, ${workout.completed})">
+            </div>
+        `;
+        return div;
+    }
+
+    function toggleSection(sectionId) {
+        const el = document.getElementById(sectionId);
+        el.style.display = el.style.display === "block" ? "none" : "block";
+    }
+
+    // Boot up
+    init();
+</script>
+
+</body>
+</html>
