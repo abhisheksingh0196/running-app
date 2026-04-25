@@ -158,13 +158,13 @@
             </div>
         </div>
 
-        <div class="section-title">Up Next</div>
-        <div id="next-workouts"></div>
+        <div class="section-title" id="current-week-title">Current Week</div>
+        <div id="current-week-workouts"></div>
 
-        <button id="future-toggle-btn" class="section-toggle" onclick="toggleSection('future-workouts', this, 'upcoming workouts')">↳ Show all upcoming workouts</button>
+        <button id="future-toggle-btn" class="section-toggle" onclick="toggleSection('future-workouts', this, 'upcoming weeks')">↳ Show upcoming weeks</button>
         <div id="future-workouts" class="hidden-section"></div>
 
-        <button id="history-toggle-btn" class="section-toggle" onclick="toggleSection('history-workouts', this, 'completed workouts')">↳ Show completed workouts</button>
+        <button id="history-toggle-btn" class="section-toggle" onclick="toggleSection('history-workouts', this, 'past workouts')">↳ Show past workouts</button>
         <div id="history-workouts" class="hidden-section"></div>
     </div>
 </div>
@@ -287,14 +287,11 @@
         const confirmed = confirm("Are you sure you want to reset your entire plan? This will uncheck all completed workouts and set you back to Week 1.");
         if (!confirmed) return;
 
-        // Close the modal
         document.getElementById('about-modal').style.display = 'none';
         
-        // Optimistic UI update
         workouts.forEach(w => w.completed = false);
         renderWorkouts();
 
-        // Update database
         const { error } = await supabaseClient
             .from('workouts')
             .update({ completed: false })
@@ -344,22 +341,39 @@
     }
 
     function renderWorkouts() {
-        const nextContainer = document.getElementById("next-workouts");
+        const currentContainer = document.getElementById("current-week-workouts");
         const futureContainer = document.getElementById("future-workouts");
         const historyContainer = document.getElementById("history-workouts");
+        const weekTitle = document.getElementById("current-week-title");
         
-        nextContainer.innerHTML = ""; futureContainer.innerHTML = ""; historyContainer.innerHTML = "";
+        currentContainer.innerHTML = ""; futureContainer.innerHTML = ""; historyContainer.innerHTML = "";
 
-        let pendingWorkouts = workouts.filter(w => !w.completed);
-        let completedWorkouts = workouts.filter(w => w.completed).reverse();
+        // Find the current active week
+        let firstUncompleted = workouts.find(w => !w.completed);
+        let currentWeekNum = firstUncompleted ? firstUncompleted.week : 24;
 
-        pendingWorkouts.slice(0, 4).forEach(w => nextContainer.appendChild(createWorkoutCard(w)));
-        pendingWorkouts.slice(4).forEach(w => futureContainer.appendChild(createWorkoutCard(w)));
+        weekTitle.innerText = "Current Week (Week " + currentWeekNum + ")";
 
-        if (completedWorkouts.length === 0) {
-            historyContainer.innerHTML = "<p style='color:var(--text-muted); font-size:14px;'>No completed workouts yet.</p>";
+        // Filter lists based on the calculated current week
+        let currentWeekWorkouts = workouts.filter(w => w.week === currentWeekNum);
+        let futureWorkoutsList = workouts.filter(w => w.week > currentWeekNum);
+        let pastCompletedWorkouts = workouts.filter(w => w.completed && w.week < currentWeekNum).reverse();
+
+        // Render Current Week
+        currentWeekWorkouts.forEach(w => currentContainer.appendChild(createWorkoutCard(w)));
+
+        // Render Future Weeks
+        if (futureWorkoutsList.length === 0) {
+            futureContainer.innerHTML = "<p style='color:var(--text-muted); font-size:14px;'>No future workouts.</p>";
         } else {
-            completedWorkouts.forEach(w => historyContainer.appendChild(createWorkoutCard(w)));
+            futureWorkoutsList.forEach(w => futureContainer.appendChild(createWorkoutCard(w)));
+        }
+
+        // Render Past Weeks (History)
+        if (pastCompletedWorkouts.length === 0) {
+            historyContainer.innerHTML = "<p style='color:var(--text-muted); font-size:14px;'>No past weeks completed yet.</p>";
+        } else {
+            pastCompletedWorkouts.forEach(w => historyContainer.appendChild(createWorkoutCard(w)));
         }
     }
 
