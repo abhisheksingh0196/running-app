@@ -264,15 +264,15 @@
 </div>
 
 <script>
-    // Initialize Supabase using variables from config.js
-    const supabase = window.supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_KEY);
+    // Initialize Supabase using a unique variable name to prevent global conflicts
+    const supabaseClient = window.supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_KEY);
 
     let workouts = [];
     let currentUser = null;
 
     // --- INITIALIZATION ---
     async function init() {
-        const { data: { session } } = await supabase.auth.getSession();
+        const { data: { session } } = await supabaseClient.auth.getSession();
         if (session) {
             currentUser = session.user;
             showLoading();
@@ -299,12 +299,11 @@
             return;
         }
 
-        const { data, error } = await supabase.auth.signUp({ email, password });
+        const { data, error } = await supabaseClient.auth.signUp({ email, password });
         
         if (error) {
             showError(error.message);
         } else if (data.session === null) {
-            // Supabase requires email confirmation by default.
             showError("Account created! Check your email for a confirmation link. (Or disable 'Confirm Email' in Supabase settings).");
         } else {
             currentUser = data.user;
@@ -318,7 +317,7 @@
         const email = document.getElementById("email").value;
         const password = document.getElementById("password").value;
         
-        const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+        const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
         
         if (error) {
             showError(error.message);
@@ -331,7 +330,7 @@
     }
 
     async function logout() {
-        await supabase.auth.signOut();
+        await supabaseClient.auth.signOut();
         currentUser = null;
         workouts = [];
         document.getElementById("dashboard-screen").style.display = "none";
@@ -343,7 +342,7 @@
 
     // --- DATABASE OPERATIONS ---
     async function loadData() {
-        let { data, error } = await supabase
+        let { data, error } = await supabaseClient
             .from('workouts')
             .select('*')
             .order('id', { ascending: true });
@@ -355,9 +354,9 @@
 
         if (data.length === 0) {
             const plan = generatePlanArray();
-            const { error: insertError } = await supabase.from('workouts').insert(plan);
+            const { error: insertError } = await supabaseClient.from('workouts').insert(plan);
             if (!insertError) {
-                let { data: newData } = await supabase.from('workouts').select('*').order('id', { ascending: true });
+                let { data: newData } = await supabaseClient.from('workouts').select('*').order('id', { ascending: true });
                 workouts = newData;
             }
         } else {
@@ -370,7 +369,7 @@
         workout.completed = !isCurrentlyCompleted;
         renderWorkouts();
 
-        await supabase
+        await supabaseClient
             .from('workouts')
             .update({ completed: !isCurrentlyCompleted })
             .eq('id', id);
